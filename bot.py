@@ -42,60 +42,38 @@ CREDS_FILE = "credentials.json"
 
 def get_calendar_service():
     """
-    Fungsi otentikasi Google Calendar yang andal untuk server.
-    Membangun kredensial dari environment variables.
+    Fungsi otentikasi Google Calendar yang andal untuk server,
+    membangun kredensial langsung dari environment variables.
     """
-    # Kunci-kunci yang diambil dari environment variables di Railway
     client_id = os.getenv("GOOGLE_CLIENT_ID")
     client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
-    project_id = os.getenv("GOOGLE_PROJECT_ID")
     refresh_token = os.getenv("GOOGLE_REFRESH_TOKEN")
 
-    # Membuat info kredensial secara dinamis
-    creds_info = {
-        "installed": {
-            "client_id": client_id,
-            "project_id": project_id,
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_secret": client_secret,
-            "redirect_uris": ["http://localhost"]
-        }
-    }
-    
-    # Membuat objek kredensial dengan refresh token
+    # Pastikan semua variabel ada di environment server
+    if not all([client_id, client_secret, refresh_token]):
+        logger.error("Variabel Google OAuth (CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN) tidak ditemukan di server.")
+        raise ValueError("Konfigurasi Variabel Google di server tidak lengkap.")
+
     try:
-        creds = Credentials.from_authorized_user_info(
-            info={ "refresh_token": refresh_token }, 
-            scopes=SCOPES
+        # Membuat objek Credentials secara langsung dengan semua data yang dibutuhkan
+        creds = Credentials(
+            token=None,  # Access token akan di-refresh
+            refresh_token=refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=SCOPES,
         )
-        # Penting: Mengasosiasikan info klien dengan token
-        creds._client_id = client_id
-        creds._client_secret = client_secret
+
+        # Me-refresh token untuk mendapatkan access token yang valid
+        creds.refresh(Request())
         
-        # Refresh token untuk mendapatkan access token yang valid
-        if not creds.valid and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            
         return build("calendar", "v3", credentials=creds)
 
     except Exception as e:
-        logger.error(f"Gagal membangun service dari environment variables: {e}")
-        # Fallback ke metode file lokal jika di komputer pribadi
-        logger.info("Mencoba otentikasi file lokal...")
-        creds = None
-        if os.path.exists(TOKEN_FILE):
-            creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file(CREDS_FILE, SCOPES)
-                creds = flow.run_local_server(port=0)
-            with open(TOKEN_FILE, "w") as token:
-                token.write(creds.to_json())
-        return build("calendar", "v3", credentials=creds)
+        logger.error(f"Gagal total saat otentikasi dengan Google: {e}")
+        # Jika gagal di sini, berarti ada masalah fundamental dengan kredensial
+        raise
 
 def parse_schedule_with_ai(text: str) -> dict:
     """Mem-parsing teks menggunakan Gemini AI."""
