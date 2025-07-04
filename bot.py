@@ -41,22 +41,50 @@ CREDS_FILE = "credentials.json"
 # --- FUNGSI-FUNGSI UTAMA ---
 
 def get_calendar_service():
-    """Fungsi otentikasi Google Calendar yang bisa berjalan di lokal dan di server."""
-    creds_json_str = os.getenv("GOOGLE_CREDS_JSON")
-    token_json_str = os.getenv("GOOGLE_TOKEN_JSON")
-    creds = None
+    """
+    Fungsi otentikasi Google Calendar yang andal untuk server.
+    Membangun kredensial dari environment variables.
+    """
+    # Kunci-kunci yang diambil dari environment variables di Railway
+    client_id = os.getenv("GOOGLE_CLIENT_ID")
+    client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+    project_id = os.getenv("GOOGLE_PROJECT_ID")
+    refresh_token = os.getenv("GOOGLE_REFRESH_TOKEN")
 
-    # Prioritas 1: Coba otentikasi dari environment variable di server
-    if creds_json_str and token_json_str:
-        creds_info = json.loads(creds_json_str)
-        token_info = json.loads(token_json_str)
-        creds = Credentials.from_authorized_user_info(token_info, SCOPES)
-        # Jika token kedaluwarsa, coba refresh
+    # Membuat info kredensial secara dinamis
+    creds_info = {
+        "installed": {
+            "client_id": client_id,
+            "project_id": project_id,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_secret": client_secret,
+            "redirect_uris": ["http://localhost"]
+        }
+    }
+    
+    # Membuat objek kredensial dengan refresh token
+    try:
+        creds = Credentials.from_authorized_user_info(
+            info={ "refresh_token": refresh_token }, 
+            scopes=SCOPES
+        )
+        # Penting: Mengasosiasikan info klien dengan token
+        creds._client_id = client_id
+        creds._client_secret = client_secret
+        
+        # Refresh token untuk mendapatkan access token yang valid
         if not creds.valid and creds.expired and creds.refresh_token:
             creds.refresh(Request())
+            
+        return build("calendar", "v3", credentials=creds)
 
-    # Prioritas 2: Fallback ke otentikasi file lokal (untuk testing di komputer)
-    else:
+    except Exception as e:
+        logger.error(f"Gagal membangun service dari environment variables: {e}")
+        # Fallback ke metode file lokal jika di komputer pribadi
+        logger.info("Mencoba otentikasi file lokal...")
+        creds = None
         if os.path.exists(TOKEN_FILE):
             creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
         if not creds or not creds.valid:
@@ -67,9 +95,7 @@ def get_calendar_service():
                 creds = flow.run_local_server(port=0)
             with open(TOKEN_FILE, "w") as token:
                 token.write(creds.to_json())
-
-    return build("calendar", "v3", credentials=creds)
-
+        return build("calendar", "v3", credentials=creds)
 
 def parse_schedule_with_ai(text: str) -> dict:
     """Mem-parsing teks menggunakan Gemini AI."""
