@@ -41,18 +41,35 @@ CREDS_FILE = "credentials.json"
 # --- FUNGSI-FUNGSI UTAMA ---
 
 def get_calendar_service():
-    """Fungsi otentikasi Google Calendar."""
+    """
+    Fungsi otentikasi Google Calendar yang bisa berjalan di lokal dan di server.
+    """
+    creds_json_str = os.getenv("GOOGLE_CREDS_JSON")
+    token_json_str = os.getenv("GOOGLE_TOKEN_JSON")
     creds = None
-    if os.path.exists(TOKEN_FILE):
-        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
+
+    # Prioritas 1: Coba otentikasi dari environment variable di server
+    if creds_json_str and token_json_str:
+        creds_info = json.loads(creds_json_str)
+        token_info = json.loads(token_json_str)
+        creds = Credentials.from_authorized_user_info(token_info, SCOPES)
+        # Jika token kedaluwarsa, coba refresh
+        if not creds.valid and creds.expired and creds.refresh_token:
             creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(CREDS_FILE, SCOPES)
-            creds = flow.run_local_server(port=0)
-        with open(TOKEN_FILE, "w") as token:
-            token.write(creds.to_json())
+
+    # Prioritas 2: Fallback ke otentikasi file lokal (untuk testing di komputer)
+    else:
+        if os.path.exists(TOKEN_FILE):
+            creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            else:
+                flow = InstalledAppFlow.from_client_secrets_file(CREDS_FILE, SCOPES)
+                creds = flow.run_local_server(port=0)
+            with open(TOKEN_FILE, "w") as token:
+                token.write(creds.to_json())
+
     return build("calendar", "v3", credentials=creds)
 
 
