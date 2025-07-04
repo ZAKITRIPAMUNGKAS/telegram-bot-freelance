@@ -63,8 +63,8 @@ def parse_schedule_with_ai(text: str) -> dict:
     Anda adalah asisten cerdas. Ekstrak detail dari teks berikut:
     Tanggal referensi hari ini: {today}. Teks pengguna: "{text}"
     Tugas Anda:
-    1. Ekstrak: judul acara, lokasi (jika ada), tanggal (format YYYY-MM-DD), dan waktu (format 24 jam HH:MM:SS).
-    2. Tentukan Kategori dari: 'Videografi Acara', 'Drone Mapping', 'Editing', 'Revisi', 'Lainnya'.
+    1. Ekstrak: judul acara, lokasi (jika ada), tanggal (format YYYY-MM-DD), dan waktu (format 24 jam HH:MM:SS). Judul acara harus spesifik sesuai permintaan pengguna.
+    2. Tentukan Kategori dari daftar berikut: 'drone', 'drone fpv', 'cinematic', 'short movie', 'foto'. Jika tidak ada yang cocok, gunakan 'Lainnya'.
     Kembalikan HANYA format JSON yang valid. Jika tidak bisa, kembalikan JSON kosong.
     """
     try:
@@ -91,20 +91,19 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
 async def get_schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handler untuk /jadwal_hari_ini, sekarang dengan filter."""
+    """Handler untuk /jadwal_hari_ini, dengan filter."""
     try:
         service = get_calendar_service()
         tz = datetime.datetime.now().astimezone().tzinfo
         time_min = datetime.datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
         await update.message.reply_text("Mencari jadwal...")
         events_result = service.events().list(
-            calendarId='primary', timeMin=time_min, maxResults=20, 
+            calendarId='primary', timeMin=time_min, maxResults=20,
             singleEvents=True, orderBy='startTime'
         ).execute()
         
         events = events_result.get('items', [])
         
-        # --- PERUBAHAN DI SINI: Filter acara ulang tahun ---
         events = [event for event in events if "happy birthday" not in event.get('summary', '').lower()]
 
         if not events:
@@ -112,7 +111,6 @@ async def get_schedule_command(update: Update, context: ContextTypes.DEFAULT_TYP
             return
             
         message = "🗓️ **Jadwal Anda Berikutnya:**\n\n"
-        # Batasi hanya menampilkan 10 acara agar tidak terlalu panjang
         for event in events[:10]:
             start = event['start'].get('dateTime', event['start'].get('date'))
             dt_object = datetime.datetime.fromisoformat(start.replace('Z', '+00:00'))
@@ -132,8 +130,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await context.bot.send_message(chat_id, text="Oke, saya proses dulu ya...")
     schedule_data = parse_schedule_with_ai(user_text)
 
-    if not schedule_data or 'tanggal' not in schedule_data or 'waktu' not in schedule_data:
-        await context.bot.send_message(chat_id, text="Maaf, saya tidak bisa menentukan tanggal atau waktu.")
+    if not schedule_data or 'tanggal' not in schedule_data or 'waktu' not in schedule_data or 'judul' not in schedule_data:
+        await context.bot.send_message(chat_id, text="Maaf, saya tidak bisa menentukan judul, tanggal, atau waktu.")
         return
 
     try:
@@ -146,10 +144,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         
         if location:
             maps_link = f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote_plus(location)}"
-            description += f"\n\n📍 Lokasi di Peta: {maps_link}"
+            description += f"\n\n📍 Buka Lokasi di Peta: {maps_link}"
             
         event = {
-            'summary': schedule_data.get('judul', 'Jadwal Baru'),
+            'summary': schedule_data['judul'], # Menggunakan judul dari AI
             'location': location,
             'description': description,
             'start': {'dateTime': start_time_obj.isoformat(), 'timeZone': 'Asia/Jakarta'},
@@ -180,12 +178,11 @@ async def delete_selective_command(update: Update, context: ContextTypes.DEFAULT
     service = get_calendar_service()
     now = datetime.datetime.utcnow().isoformat() + 'Z'
     events_result = service.events().list(
-        calendarId='primary', timeMin=now, maxResults=20, # Ambil lebih banyak untuk difilter
+        calendarId='primary', timeMin=now, maxResults=20,
         singleEvents=True, orderBy='startTime'
     ).execute()
     events = events_result.get('items', [])
 
-    # --- PERUBAHAN DI SINI: Filter acara ulang tahun ---
     events = [event for event in events if "happy birthday" not in event.get('summary', '').lower()]
 
     if not events:
@@ -193,7 +190,6 @@ async def delete_selective_command(update: Update, context: ContextTypes.DEFAULT
         return
 
     keyboard = []
-    # Batasi hanya menampilkan 10 tombol agar tidak terlalu panjang
     for event in events[:10]:
         event_id = event['id']
         event_summary = event['summary']
@@ -204,7 +200,7 @@ async def delete_selective_command(update: Update, context: ContextTypes.DEFAULT
     await update.message.reply_text('Pilih jadwal yang ingin Anda hapus:', reply_markup=reply_markup)
 
 async def delete_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Meminta konfirmasi untuk menghapus semua jadwal."""
+    """Meminta konfirmasi untuk menghapus semua jadwal (kecuali ulang tahun)."""
     keyboard = [[
         InlineKeyboardButton("🔴 Ya, Hapus Semua", callback_data="confirm_delete_all"),
         InlineKeyboardButton("Batal", callback_data="cancel_delete")
@@ -240,7 +236,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         ).execute()
         events = events_result.get('items', [])
 
-        # Filter lagi di sini untuk keamanan
         events = [event for event in events if "happy birthday" not in event.get('summary', '').lower()]
         
         count = 0
