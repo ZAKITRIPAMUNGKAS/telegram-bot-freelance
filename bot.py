@@ -41,9 +41,7 @@ CREDS_FILE = "credentials.json"
 # --- FUNGSI-FUNGSI UTAMA ---
 
 def get_calendar_service():
-    """
-    Fungsi otentikasi Google Calendar yang bisa berjalan di lokal dan di server.
-    """
+    """Fungsi otentikasi Google Calendar yang bisa berjalan di lokal dan di server."""
     creds_json_str = os.getenv("GOOGLE_CREDS_JSON")
     token_json_str = os.getenv("GOOGLE_TOKEN_JSON")
     creds = None
@@ -80,8 +78,8 @@ def parse_schedule_with_ai(text: str) -> dict:
     Anda adalah asisten cerdas. Ekstrak detail dari teks berikut:
     Tanggal referensi hari ini: {today}. Teks pengguna: "{text}"
     Tugas Anda:
-    1. Ekstrak: judul acara, lokasi (jika ada), tanggal (format YYYY-MM-DD), dan waktu (format 24 jam HH:MM:SS). Judul acara harus spesifik sesuai permintaan pengguna.
-    2. Tentukan Kategori dari daftar berikut: 'drone', 'drone fpv', 'cinematic', 'short movie', 'foto'. Jika tidak ada yang cocok, gunakan 'Lainnya'.
+    1. Ekstrak: judul acara, lokasi (jika ada), tanggal (format YYYY-MM-DD), dan waktu (format 24 jam HH:MM:SS). Judul acara harus spesifik.
+    2. Tentukan Kategori dari daftar: 'drone', 'drone fpv', 'cinematic', 'short movie', 'foto', atau 'Lainnya'.
     Kembalikan HANYA format JSON yang valid. Jika tidak bisa, kembalikan JSON kosong.
     """
     try:
@@ -120,7 +118,6 @@ async def get_schedule_command(update: Update, context: ContextTypes.DEFAULT_TYP
         ).execute()
         
         events = events_result.get('items', [])
-        
         events = [event for event in events if "happy birthday" not in event.get('summary', '').lower()]
 
         if not events:
@@ -147,8 +144,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await context.bot.send_message(chat_id, text="Oke, saya proses dulu ya...")
     schedule_data = parse_schedule_with_ai(user_text)
 
-    if not schedule_data or 'tanggal' not in schedule_data or 'waktu' not in schedule_data or 'judul' not in schedule_data:
-        await context.bot.send_message(chat_id, text="Maaf, saya tidak bisa menentukan judul, tanggal, atau waktu.")
+    # Cek data penting dari AI
+    if not schedule_data or 'tanggal' not in schedule_data or 'waktu' not in schedule_data:
+        await context.bot.send_message(chat_id, text="Maaf, saya tidak bisa menentukan tanggal atau waktu.")
+        return
+
+    # Fleksibel dalam mencari kunci judul
+    judul_acara = schedule_data.get('judul') or schedule_data.get('judul_acara')
+    
+    if not judul_acara:
+        await context.bot.send_message(chat_id, text="Maaf, saya tidak bisa menentukan judul acara dari permintaan Anda.")
         return
 
     try:
@@ -164,7 +169,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             description += f"\n\n📍 Buka Lokasi di Peta: {maps_link}"
             
         event = {
-            'summary': schedule_data['judul'], # Menggunakan judul dari AI
+            'summary': judul_acara, # Menggunakan judul yang sudah ditemukan
             'location': location,
             'description': description,
             'start': {'dateTime': start_time_obj.isoformat(), 'timeZone': 'Asia/Jakarta'},
